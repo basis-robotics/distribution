@@ -11,6 +11,7 @@ import (
 
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/internal/dcontext"
+	chunkedmedia "github.com/distribution/distribution/v3/manifest/chunked"
 	"github.com/distribution/distribution/v3/manifest/manifestlist"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
 	"github.com/distribution/distribution/v3/manifest/schema2"
@@ -289,6 +290,18 @@ func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) 
 	if err := imh.applyResourcePolicy(manifest); err != nil {
 		imh.Errors = append(imh.Errors, err)
 		return
+	}
+
+	// Enforce push_policy: reject — non-chunked OCI manifests are rejected.
+	if imh.App.Config.Chunked.PushPolicy == "reject" && mediaType == v1.MediaTypeImageManifest {
+		if ociManifest, ok := manifest.(*ocischema.DeserializedManifest); ok {
+			for _, layer := range ociManifest.Manifest.Layers {
+				if layer.MediaType != chunkedmedia.MediaTypeLayerTOC {
+					imh.Errors = append(imh.Errors, errcode.ErrorCodeUnsupported.WithDetail("push_policy is reject: only chunked TOC layers are accepted"))
+					return
+				}
+			}
+		}
 	}
 
 	_, err = manifests.Put(imh, manifest, options...)

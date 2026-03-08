@@ -109,6 +109,7 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	app.register(v2.RouteNameBlob, blobDispatcher)
 	app.register(v2.RouteNameBlobUpload, blobUploadDispatcher)
 	app.register(v2.RouteNameBlobUploadChunk, blobUploadDispatcher)
+	app.register(v2.RouteNameChunkLocate, chunkLookupDispatcher)
 
 	// override the storage driver's UA string for registry outbound HTTP requests
 	storageParams := config.Storage.Parameters()
@@ -272,6 +273,11 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 		default:
 			options = append(options, storage.EnableValidateImageIndexImagesExist)
 		}
+	}
+
+	// configure chunked push policy
+	if config.Chunked.PushPolicy != "" {
+		options = append(options, storage.ChunkedPushPolicy(config.Chunked.PushPolicy))
 	}
 
 	// configure storage caches

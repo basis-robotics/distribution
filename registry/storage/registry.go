@@ -31,6 +31,10 @@ type registry struct {
 	// Validation
 	manifestURLs         manifestURLs
 	validateImageIndexes validateImageIndexes
+
+	// chunkedPushPolicy controls how non-chunked image pushes are handled.
+	// Values: "" / "allow" (default), "convert" (stub), "reject".
+	chunkedPushPolicy string
 }
 
 // manifestURLs holds regular expressions for controlling manifest URL whitelisting
@@ -127,6 +131,16 @@ func AddValidateImageIndexImagesExistPlatform(architecture string, os string) Re
 func BlobDescriptorServiceFactory(factory distribution.BlobDescriptorServiceFactory) RegistryOption {
 	return func(registry *registry) error {
 		registry.blobDescriptorServiceFactory = factory
+		return nil
+	}
+}
+
+// ChunkedPushPolicy returns a functional option for NewRegistry that sets the
+// push policy for chunked image storage. Accepted values: "allow" (default),
+// "convert" (stub — logs a TODO), "reject".
+func ChunkedPushPolicy(policy string) RegistryOption {
+	return func(registry *registry) error {
+		registry.chunkedPushPolicy = policy
 		return nil
 	}
 }
@@ -305,6 +319,7 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 			repository:   repo,
 			blobStore:    blobStore,
 			manifestURLs: repo.registry.manifestURLs,
+			pushPolicy:   repo.registry.chunkedPushPolicy,
 		},
 		ocischemaIndexHandler: &ocischemaIndexHandler{
 			manifestListHandler: manifestListHandler,

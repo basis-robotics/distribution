@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/distribution/distribution/v3"
+	"github.com/distribution/distribution/v3/manifest/chunked"
 	"github.com/distribution/distribution/v3/registry/storage/driver"
 	"github.com/distribution/reference"
 	"github.com/opencontainers/go-digest"
@@ -97,6 +98,7 @@ func MarkAndSweep(ctx context.Context, storageDriver driver.StorageDriver, regis
 			}
 			markSet[dgst] = struct{}{}
 
+			blobService := repository.Blobs(ctx)
 			return markManifestReferences(dgst, manifestService, ctx, func(d digest.Digest) bool {
 				_, marked := markSet[d]
 				if !marked {
@@ -106,7 +108,7 @@ func MarkAndSweep(ctx context.Context, storageDriver driver.StorageDriver, regis
 					}
 				}
 				return marked
-			})
+			}, blobService.Get)
 		})
 
 		if err != nil {
@@ -214,8 +216,12 @@ func unmarkReferencedManifest(manifestArr []ManifestDel, markSet map[digest.Dige
 	return filtered
 }
 
-// markManifestReferences marks the manifest references
-func markManifestReferences(dgst digest.Digest, manifestService distribution.ManifestService, ctx context.Context, ingester func(digest.Digest) bool) error {
+// markManifestReferences marks the manifest references.
+// blobGetter is used to fetch TOC blobs so that chunk digests can also be marked reachable.
+func markManifestReferences(dgst digest.Digest, manifestService distribution.ManifestService, ctx context.Context,
+	ingester func(digest.Digest) bool,
+	blobGetter func(ctx context.Context, dgst digest.Digest) ([]byte, error)) error {
+
 	manifest, err := manifestService.Get(ctx, dgst)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve manifest for digest %v: %v", dgst, err)
@@ -229,8 +235,19 @@ func markManifestReferences(dgst digest.Digest, manifestService distribution.Man
 			continue
 		}
 
+		// For TOC layer blobs, also mark all referenced chunk digests.
+		if descriptor.MediaType == chunked.MediaTypeLayerTOC && blobGetter != nil {
+			if data, blobErr := blobGetter(ctx, descriptor.Digest); blobErr == nil {
+				if toc, parseErr := chunked.ParseTOC(data); parseErr == nil {
+					for _, chunkDgst := range toc.ChunkDigests() {
+						ingester(chunkDgst)
+					}
+				}
+			}
+		}
+
 		if ok, _ := manifestService.Exists(ctx, descriptor.Digest); ok {
-			err := markManifestReferences(descriptor.Digest, manifestService, ctx, ingester)
+			err := markManifestReferences(descriptor.Digest, manifestService, ctx, ingester, blobGetter)
 			if err != nil {
 				return err
 			}

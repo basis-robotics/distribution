@@ -22,6 +22,9 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/distribution/distribution/v3/manifest/chunked"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
@@ -34,6 +37,7 @@ func main() {
 	src := flag.String("src", "", "path to OCI image tar (docker save output)")
 	dst := flag.String("dst", "", "destination [http://|https://]registry/repo:tag")
 	user := flag.String("user", "", "registry credentials in user:pass format")
+	jobs := flag.Int("jobs", 16, "parallel blob upload workers")
 	flag.Parse()
 
 	if *src == "" || *dst == "" {
@@ -41,13 +45,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(context.Background(), *src, *dst, *user); err != nil {
+	if err := run(context.Background(), *src, *dst, *user, *jobs); err != nil {
 		log.Fatalf("chunked-convert: %v", err)
 	}
 }
 
 // run converts and pushes the image.
-func run(ctx context.Context, srcPath, dstRef, userPass string) error {
+func run(ctx context.Context, srcPath, dstRef, userPass string, jobs int) error {
 	// Parse destination reference.
 	scheme, registry, repo, tag, err := parseRef(dstRef)
 	if err != nil {
@@ -61,6 +65,7 @@ func run(ctx context.Context, srcPath, dstRef, userPass string) error {
 	}
 
 	// Read source tar.
+	t0 := time.Now()
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return err
@@ -71,6 +76,7 @@ func run(ctx context.Context, srcPath, dstRef, userPass string) error {
 	if err != nil {
 		return fmt.Errorf("reading image tar: %w", err)
 	}
+	log.Printf("read tar: %v", time.Since(t0).Round(time.Millisecond))
 
 	// Parse manifest.json.
 	mfstJSON, ok := files["manifest.json"]
@@ -108,20 +114,67 @@ func run(ctx context.Context, srcPath, dstRef, userPass string) error {
 			mediaType = src.MediaType
 		}
 
-		// Push chunk blobs on conversion.
-		pusher := func(ctx context.Context, data []byte) (digest.Digest, error) {
+		// Phase 1: convert — collect unique (digest→data) pairs without doing any I/O.
+		pending := make(map[digest.Digest][]byte)
+		pusher := func(_ context.Context, data []byte) (digest.Digest, error) {
 			dgst := digest.FromBytes(data)
-			if err := client.pushBlob(ctx, dgst, data); err != nil {
-				return "", err
+			if _, exists := pending[dgst]; !exists {
+				pending[dgst] = data
 			}
 			return dgst, nil
 		}
 
 		log.Printf("converting layer %s ...", layerPath)
+		tConvert := time.Now()
 		toc, err := chunked.ConvertLayerToChunked(ctx, layerData, mediaType, pusher)
 		if err != nil {
 			return fmt.Errorf("converting layer %s: %w", layerPath, err)
 		}
+		log.Printf("convert done in %v — %d unique chunks queued for upload", time.Since(tConvert).Round(time.Millisecond), len(pending))
+
+		// Phase 2: push all unique chunk blobs in parallel.
+		type pendingBlob struct {
+			dgst digest.Digest
+			data []byte
+		}
+		tPush := time.Now()
+		work := make(chan pendingBlob, len(pending))
+		for dgst, data := range pending {
+			work <- pendingBlob{dgst, data}
+		}
+		close(work)
+
+		var pushed, skippedCount atomic.Int64
+		var firstErr atomic.Pointer[error]
+		var wg sync.WaitGroup
+		for range jobs {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for p := range work {
+					if firstErr.Load() != nil {
+						return
+					}
+					skip, err := client.pushBlob(ctx, p.dgst, p.data)
+					if err != nil {
+						firstErr.CompareAndSwap(nil, &err)
+						return
+					}
+					if skip {
+						skippedCount.Add(1)
+					} else {
+						pushed.Add(1)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+
+		if ep := firstErr.Load(); ep != nil {
+			return fmt.Errorf("uploading blobs for layer %s: %w", layerPath, *ep)
+		}
+		log.Printf("push done in %v — uploaded %d blobs, skipped %d (already present)",
+			time.Since(tPush).Round(time.Millisecond), pushed.Load(), skippedCount.Load())
 
 		// Push TOC blob.
 		tocJSON, err := json.Marshal(toc)
@@ -129,7 +182,7 @@ func run(ctx context.Context, srcPath, dstRef, userPass string) error {
 			return err
 		}
 		tocDgst := digest.FromBytes(tocJSON)
-		if err := client.pushBlob(ctx, tocDgst, tocJSON); err != nil {
+		if _, err := client.pushBlob(ctx, tocDgst, tocJSON); err != nil {
 			return fmt.Errorf("pushing TOC for %s: %w", layerPath, err)
 		}
 
@@ -169,7 +222,7 @@ func run(ctx context.Context, srcPath, dstRef, userPass string) error {
 	}
 
 	configDgst := digest.FromBytes(newConfigData)
-	if err := client.pushBlob(ctx, configDgst, newConfigData); err != nil {
+	if _, err := client.pushBlob(ctx, configDgst, newConfigData); err != nil {
 		return fmt.Errorf("pushing config: %w", err)
 	}
 
@@ -350,17 +403,18 @@ func parseBearer(s string) map[string]string {
 }
 
 // pushBlob pushes a blob using the monolithic upload method, skipping if already present.
-func (c *registryClient) pushBlob(ctx context.Context, dgst digest.Digest, data []byte) error {
+// Returns (true, nil) if the blob was already present (skipped), (false, nil) if uploaded.
+func (c *registryClient) pushBlob(ctx context.Context, dgst digest.Digest, data []byte) (skipped bool, err error) {
 	// HEAD to check existence.
 	headURL := fmt.Sprintf("%s/v2/%s/blobs/%s", c.base, c.repo, dgst)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodHead, headURL, nil)
 	resp, err := c.do(req)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
-		return nil // already present
+		return true, nil // already present
 	}
 
 	// POST to start upload.
@@ -369,15 +423,15 @@ func (c *registryClient) pushBlob(ctx context.Context, dgst digest.Digest, data 
 	req.Header.Set("Content-Length", "0")
 	resp, err = c.do(req)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("POST blobs/uploads/ returned %d", resp.StatusCode)
+		return false, fmt.Errorf("POST blobs/uploads/ returned %d", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
 	if location == "" {
-		return fmt.Errorf("no Location header from POST blobs/uploads/")
+		return false, fmt.Errorf("no Location header from POST blobs/uploads/")
 	}
 
 	// Append query param for digest and PUT.
@@ -391,13 +445,13 @@ func (c *registryClient) pushBlob(ctx context.Context, dgst digest.Digest, data 
 	req.ContentLength = int64(len(data))
 	resp, err = c.do(req)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("PUT blob returned %d", resp.StatusCode)
+		return false, fmt.Errorf("PUT blob returned %d", resp.StatusCode)
 	}
-	return nil
+	return false, nil
 }
 
 // pushManifest pushes a manifest by tag.

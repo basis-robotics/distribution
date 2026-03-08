@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
@@ -28,6 +29,9 @@ func ConvertLayerToChunked(ctx context.Context, compressedData []byte, mediaType
 	toc := &TOC{Version: 1}
 	tr := tar.NewReader(tarReader)
 
+	var totalEntries, totalChunks int
+	var totalBytes int64
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -42,8 +46,18 @@ func ConvertLayerToChunked(ctx context.Context, compressedData []byte, mediaType
 			return nil, err
 		}
 		toc.Entries = append(toc.Entries, entry)
+		totalEntries++
+
+		if entry.Type == "reg" && entry.Digest != "" {
+			totalChunks++
+			totalBytes += entry.Size
+			log.Printf("chunked: [%d] reg %s (%d bytes) → %s", totalEntries, entry.Name, entry.Size, entry.Digest.Hex()[:12])
+		} else if totalEntries%500 == 0 {
+			log.Printf("chunked: processed %d entries ...", totalEntries)
+		}
 	}
 
+	log.Printf("chunked: done — %d entries, %d chunk blobs, %.1f MB total", totalEntries, totalChunks, float64(totalBytes)/(1<<20))
 	return toc, nil
 }
 
@@ -53,6 +67,7 @@ func decompressLayer(data []byte, mediaType string) (io.Reader, error) {
 
 	switch {
 	case strings.Contains(mediaType, "gzip"):
+		log.Printf("chunked: decompressing layer (gzip, %.1f MB compressed)", float64(len(data))/(1<<20))
 		gr, err := gzip.NewReader(r)
 		if err != nil {
 			return nil, err
@@ -60,6 +75,7 @@ func decompressLayer(data []byte, mediaType string) (io.Reader, error) {
 		return gr, nil
 
 	case strings.Contains(mediaType, "zstd"):
+		log.Printf("chunked: decompressing layer (zstd, %.1f MB compressed)", float64(len(data))/(1<<20))
 		zr, err := zstd.NewReader(r)
 		if err != nil {
 			return nil, err
@@ -67,7 +83,7 @@ func decompressLayer(data []byte, mediaType string) (io.Reader, error) {
 		return zr.IOReadCloser(), nil
 
 	default:
-		// Assume uncompressed tar.
+		log.Printf("chunked: layer is uncompressed tar (%.1f MB)", float64(len(data))/(1<<20))
 		return r, nil
 	}
 }

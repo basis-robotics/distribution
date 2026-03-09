@@ -7,7 +7,7 @@ import (
 
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/internal/dcontext"
-	chunked "github.com/clipper-registry/clipper-oci"
+	"github.com/clipper-registry/clipper-oci"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -84,7 +84,7 @@ func (ms *ocischemaManifestHandler) Put(ctx context.Context, manifest distributi
 func hasTraditionalLayers(m *ocischema.DeserializedManifest) bool {
 	for _, layer := range m.Manifest.Layers {
 		mt := layer.MediaType
-		if mt != chunked.MediaTypeLayerTOC {
+		if mt != clipperoci.MediaTypeLayerTOC {
 			switch mt {
 			case v1.MediaTypeImageLayer, v1.MediaTypeImageLayerGzip,
 				v1.MediaTypeImageLayerNonDistributable, v1.MediaTypeImageLayerNonDistributableGzip: //nolint:staticcheck
@@ -101,7 +101,7 @@ func (ms *ocischemaManifestHandler) populateChunkIndex(ctx context.Context, m *o
 	blobsService := ms.repository.Blobs(ctx)
 
 	for _, descriptor := range m.Manifest.Layers {
-		if descriptor.MediaType != chunked.MediaTypeLayerTOC {
+		if descriptor.MediaType != clipperoci.MediaTypeLayerTOC {
 			continue
 		}
 		data, err := blobsService.Get(ctx, descriptor.Digest)
@@ -109,7 +109,7 @@ func (ms *ocischemaManifestHandler) populateChunkIndex(ctx context.Context, m *o
 			dcontext.GetLogger(ctx).Warnf("chunked: failed to get TOC blob %s for chunk index: %v", descriptor.Digest, err)
 			continue
 		}
-		toc, err := chunked.ParseTOC(data)
+		toc, err := clipperoci.ParseTOC(data)
 		if err != nil {
 			dcontext.GetLogger(ctx).Warnf("chunked: failed to parse TOC blob %s: %v", descriptor.Digest, err)
 			continue
@@ -155,14 +155,14 @@ func (ms *ocischemaManifestHandler) verifyManifest(ctx context.Context, mnfst oc
 		}
 
 		switch descriptor.MediaType {
-		case chunked.MediaTypeLayerTOC:
+		case clipperoci.MediaTypeLayerTOC:
 			// Fetch and parse the TOC blob, then verify all chunk digests exist.
 			data, fetchErr := blobsService.Get(ctx, descriptor.Digest)
 			if fetchErr != nil {
 				errs = append(errs, distribution.ErrManifestBlobUnknown{Digest: descriptor.Digest})
 				continue
 			}
-			toc, parseErr := chunked.ParseTOC(data)
+			toc, parseErr := clipperoci.ParseTOC(data)
 			if parseErr != nil {
 				errs = append(errs, parseErr, distribution.ErrManifestBlobUnknown{Digest: descriptor.Digest})
 				continue

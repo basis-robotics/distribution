@@ -11,7 +11,7 @@ import (
 
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/internal/dcontext"
-	chunkedmedia "github.com/clipper-registry/clipper-oci"
+	"github.com/clipper-registry/clipper-oci"
 	"github.com/distribution/distribution/v3/manifest/manifestlist"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
 	"github.com/distribution/distribution/v3/manifest/schema2"
@@ -296,7 +296,7 @@ func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) 
 	if imh.App.Config.Chunked.PushPolicy == "reject" && mediaType == v1.MediaTypeImageManifest {
 		if ociManifest, ok := manifest.(*ocischema.DeserializedManifest); ok {
 			for _, layer := range ociManifest.Manifest.Layers {
-				if layer.MediaType != chunkedmedia.MediaTypeLayerTOC {
+				if layer.MediaType != clipperoci.MediaTypeLayerTOC {
 					imh.Errors = append(imh.Errors, errcode.ErrorCodeUnsupported.WithDetail("push_policy is reject: only chunked TOC layers are accepted"))
 					return
 				}

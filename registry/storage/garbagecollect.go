@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/distribution/distribution/v3"
-	chunked "github.com/clipper-registry/clipper-oci"
+	"github.com/clipper-registry/clipper-oci"
 	"github.com/distribution/distribution/v3/registry/storage/driver"
 	"github.com/distribution/reference"
 	"github.com/opencontainers/go-digest"
@@ -236,9 +236,9 @@ func markManifestReferences(dgst digest.Digest, manifestService distribution.Man
 		}
 
 		// For TOC layer blobs, also mark all referenced chunk digests.
-		if descriptor.MediaType == chunked.MediaTypeLayerTOC && blobGetter != nil {
+		if descriptor.MediaType == clipperoci.MediaTypeLayerTOC && blobGetter != nil {
 			if data, blobErr := blobGetter(ctx, descriptor.Digest); blobErr == nil {
-				if toc, parseErr := chunked.ParseTOC(data); parseErr == nil {
+				if toc, parseErr := clipperoci.ParseTOC(data); parseErr == nil {
 					for _, chunkDgst := range toc.ChunkDigests() {
 						ingester(chunkDgst)
 					}

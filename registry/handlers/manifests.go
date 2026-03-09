@@ -11,7 +11,7 @@ import (
 
 	"github.com/distribution/distribution/v3"
 	"github.com/distribution/distribution/v3/internal/dcontext"
-	chunkedmedia "github.com/distribution/distribution/v3/manifest/chunked"
+	chunkedmedia "github.com/clipper-registry/clipper-oci"
 	"github.com/distribution/distribution/v3/manifest/manifestlist"
 	"github.com/distribution/distribution/v3/manifest/ocischema"
 	"github.com/distribution/distribution/v3/manifest/schema2"

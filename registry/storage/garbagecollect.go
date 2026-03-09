@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/distribution/distribution/v3"
-	"github.com/distribution/distribution/v3/manifest/chunked"
+	chunked "github.com/clipper-registry/clipper-oci"
 	"github.com/distribution/distribution/v3/registry/storage/driver"
 	"github.com/distribution/reference"
 	"github.com/opencontainers/go-digest"

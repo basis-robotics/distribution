@@ -1,4 +1,4 @@
-package chunked
+package clipperoci
 
 import (
 	"encoding/json"

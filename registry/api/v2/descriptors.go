@@ -1610,6 +1610,18 @@ var routeDescriptors = []RouteDescriptor{
 		},
 	},
 	{
+		Name:        RouteNameChunkList,
+		Path:        "/v2/_ext/chunks",
+		Entity:      "ChunkList",
+		Description: "List all chunks known to the registry and the manifests that reference them.",
+		Methods: []MethodDescriptor{
+			{
+				Method:      http.MethodGet,
+				Description: "Return all chunk digests and their manifest references.",
+			},
+		},
+	},
+	{
 		Name:        RouteNameChunkLocate,
 		Path:        "/v2/{name:" + reference.NameRegexp.String() + "}/_ext/chunks/locate",
 		Entity:      "ChunkLocate",

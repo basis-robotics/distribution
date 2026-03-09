@@ -198,6 +198,8 @@ func NewRegistry(ctx context.Context, driver storagedriver.StorageDriver, option
 		}
 	}
 
+	DefaultChunkIndex = &ChunkIndex{driver: driver}
+
 	return registry, nil
 }
 

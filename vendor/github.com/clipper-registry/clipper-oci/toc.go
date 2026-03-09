@@ -75,29 +75,12 @@ type TOCEntry struct {
 }
 
 // TOCChunk describes one chunk blob of a multi-chunk regular file.
-// It serializes as a [digest, size] JSON array.
 type TOCChunk struct {
 	// Digest is the content-addressed digest of this chunk blob.
-	Digest digest.Digest
+	Digest digest.Digest `json:"digest"`
 
 	// Size is the byte length of this chunk.
-	Size int64
-}
-
-func (c TOCChunk) MarshalJSON() ([]byte, error) {
-	return json.Marshal([2]interface{}{c.Digest, c.Size})
-}
-
-func (c *TOCChunk) UnmarshalJSON(data []byte) error {
-	var arr [2]json.RawMessage
-	if err := json.Unmarshal(data, &arr); err != nil {
-		return fmt.Errorf("TOCChunk: expected [digest, size] array: %w", err)
-	}
-	digestRaw, sizeRaw := arr[0], arr[1]
-	if err := json.Unmarshal(digestRaw, &c.Digest); err != nil {
-		return fmt.Errorf("TOCChunk: invalid digest: %w", err)
-	}
-	return json.Unmarshal(sizeRaw, &c.Size)
+	Size int64 `json:"size"`
 }
 
 // ParseTOC parses a TOC from JSON-encoded bytes.

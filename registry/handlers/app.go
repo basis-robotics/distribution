@@ -110,6 +110,7 @@ func NewApp(ctx context.Context, config *configuration.Configuration) *App {
 	app.register(v2.RouteNameBlobUpload, blobUploadDispatcher)
 	app.register(v2.RouteNameBlobUploadChunk, blobUploadDispatcher)
 	app.register(v2.RouteNameChunkLocate, chunkLookupDispatcher)
+	app.register(v2.RouteNameChunkList, chunkListDispatcher)
 
 	// override the storage driver's UA string for registry outbound HTTP requests
 	storageParams := config.Storage.Parameters()
@@ -946,7 +947,7 @@ func (app *App) nameRequired(r *http.Request) bool {
 		return true
 	}
 	routeName := route.GetName()
-	return routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog
+	return routeName != v2.RouteNameBase && routeName != v2.RouteNameCatalog && routeName != v2.RouteNameChunkList
 }
 
 // apiBase implements a simple yes-man for doing overall checks against the

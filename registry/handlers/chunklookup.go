@@ -17,6 +17,14 @@ func chunkLookupDispatcher(ctx *Context, r *http.Request) http.Handler {
 	}
 }
 
+// chunkListDispatcher creates the HTTP handler for the global chunk list endpoint.
+func chunkListDispatcher(ctx *Context, r *http.Request) http.Handler {
+	handler := &chunkLookupHandler{Context: ctx}
+	return handlers.MethodHandler{
+		http.MethodGet: http.HandlerFunc(handler.ListChunks),
+	}
+}
+
 type chunkLookupHandler struct {
 	*Context
 }
@@ -26,14 +34,17 @@ type chunkLocateRequest struct {
 	Digests []digest.Digest `json:"digests"`
 }
 
-// chunkLocateResult holds the location of a single chunk.
-type chunkLocateResult struct {
-	Repository string `json:"repository"`
+// ListChunks handles GET /v2/_ext/chunks.
+// Returns all chunk digests and their manifest references known to the index.
+func (ch *chunkLookupHandler) ListChunks(w http.ResponseWriter, r *http.Request) {
+	all := storage.DefaultChunkIndex.All(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(all)
 }
 
 // LocateChunks handles POST /v2/<name>/_ext/chunks/locate.
-// It looks up each requested digest in the in-memory chunk index and returns
-// a map of digest → location (or null when not found).
+// Response: map of chunk digest → list of ManifestRef (or absent key when not found).
 func (ch *chunkLookupHandler) LocateChunks(w http.ResponseWriter, r *http.Request) {
 	var req chunkLocateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -41,12 +52,10 @@ func (ch *chunkLookupHandler) LocateChunks(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	results := make(map[digest.Digest]*chunkLocateResult, len(req.Digests))
+	results := make(map[digest.Digest][]storage.ManifestRef, len(req.Digests))
 	for _, dgst := range req.Digests {
-		if repo, found := storage.DefaultChunkIndex.Locate(dgst); found {
-			results[dgst] = &chunkLocateResult{Repository: repo}
-		} else {
-			results[dgst] = nil
+		if refs := storage.DefaultChunkIndex.Locate(r.Context(), dgst); len(refs) > 0 {
+			results[dgst] = refs
 		}
 	}
 

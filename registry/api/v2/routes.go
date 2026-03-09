@@ -17,6 +17,7 @@ const (
 	RouteNameBlobUploadChunk = "blob-upload-chunk"
 	RouteNameCatalog         = "catalog"
 	RouteNameChunkLocate     = "chunk-locate"
+	RouteNameChunkList       = "chunk-list"
 )
 
 var (

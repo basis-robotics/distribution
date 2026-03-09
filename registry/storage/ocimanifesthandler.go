@@ -53,8 +53,7 @@ func (ms *ocischemaManifestHandler) Put(ctx context.Context, manifest distributi
 			// Stub: log and fall through to normal put.
 			dcontext.GetLogger(ctx).Warnf("chunked convert stub: conversion not fully implemented, falling through: %v", err)
 		} else {
-			// Populate chunk index from converted manifest.
-			ms.populateChunkIndex(ctx, m)
+			ms.populateChunkIndex(ctx, m, newDgst)
 			return newDgst, nil
 		}
 	}
@@ -74,8 +73,7 @@ func (ms *ocischemaManifestHandler) Put(ctx context.Context, manifest distributi
 		return "", err
 	}
 
-	// Populate chunk index for TOC layers in this manifest.
-	ms.populateChunkIndex(ctx, m)
+	ms.populateChunkIndex(ctx, m, revision.Digest)
 
 	return revision.Digest, nil
 }
@@ -96,7 +94,7 @@ func hasTraditionalLayers(m *ocischema.DeserializedManifest) bool {
 }
 
 // populateChunkIndex adds all chunk digests from TOC layers to the global chunk index.
-func (ms *ocischemaManifestHandler) populateChunkIndex(ctx context.Context, m *ocischema.DeserializedManifest) {
+func (ms *ocischemaManifestHandler) populateChunkIndex(ctx context.Context, m *ocischema.DeserializedManifest, manifestDgst digest.Digest) {
 	repoName := ms.repository.Named().Name()
 	blobsService := ms.repository.Blobs(ctx)
 
@@ -114,7 +112,7 @@ func (ms *ocischemaManifestHandler) populateChunkIndex(ctx context.Context, m *o
 			dcontext.GetLogger(ctx).Warnf("chunked: failed to parse TOC blob %s: %v", descriptor.Digest, err)
 			continue
 		}
-		DefaultChunkIndex.Add(repoName, toc.ChunkDigests())
+		DefaultChunkIndex.Add(ctx, repoName, manifestDgst, toc.ChunkDigests())
 	}
 }
 

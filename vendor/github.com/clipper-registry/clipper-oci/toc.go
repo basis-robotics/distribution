@@ -14,6 +14,10 @@ const (
 
 	// OriginalDigestAnnotation is the annotation key for the original layer digest.
 	OriginalDigestAnnotation = "org.opencontainers.image.layer.original-digest"
+
+	// UncompressedSizeAnnotation is the annotation key for the total uncompressed
+	// size of all regular files in the layer, in bytes.
+	UncompressedSizeAnnotation = "org.opencontainers.image.layer.uncompressed-size"
 )
 
 // TOC is the top-level table of contents for a chunked layer.
@@ -103,6 +107,17 @@ func ParseTOC(data []byte) (*TOC, error) {
 		return nil, fmt.Errorf("chunked: invalid TOC JSON: %w", err)
 	}
 	return &toc, nil
+}
+
+// UncompressedSize returns the total uncompressed size of all regular files in the TOC.
+func (t *TOC) UncompressedSize() int64 {
+	var total int64
+	for _, entry := range t.Entries {
+		if entry.Type == "reg" {
+			total += entry.Size
+		}
+	}
+	return total
 }
 
 // ChunkDigests returns all chunk blob digests referenced by this TOC.

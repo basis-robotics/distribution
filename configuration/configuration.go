@@ -66,6 +66,16 @@ type Configuration struct {
 
 	// Policy configures registry policy options.
 	Policy Policy `yaml:"policy,omitempty"`
+
+	// Chunked holds configuration for chunk-based image storage.
+	Chunked ChunkedConfig `yaml:"chunked,omitempty"`
+}
+
+// ChunkedConfig holds configuration for chunk-based (sub-layer dedup) image storage.
+type ChunkedConfig struct {
+	// PushPolicy controls how non-chunked image pushes are handled.
+	// Values: "allow" (default), "convert" (rewrite on ingest), "reject".
+	PushPolicy string `yaml:"pushpolicy,omitempty"`
 }
 
 // Policy defines configuration options for managing registry policies.

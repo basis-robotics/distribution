@@ -1609,4 +1609,53 @@ var routeDescriptors = []RouteDescriptor{
 			},
 		},
 	},
+	{
+		Name:        RouteNameChunkList,
+		Path:        "/v2/_ext/chunks",
+		Entity:      "ChunkList",
+		Description: "List all chunks known to the registry and the manifests that reference them.",
+		Methods: []MethodDescriptor{
+			{
+				Method:      http.MethodGet,
+				Description: "Return all chunk digests and their manifest references.",
+			},
+		},
+	},
+	{
+		Name:        RouteNameChunkLocate,
+		Path:        "/v2/{name:" + reference.NameRegexp.String() + "}/_ext/chunks/locate",
+		Entity:      "ChunkLocate",
+		Description: "Locate chunk blobs by digest across repositories.",
+		Methods: []MethodDescriptor{
+			{
+				Method:      http.MethodPost,
+				Description: "Find which repository holds each requested chunk digest.",
+				Requests: []RequestDescriptor{
+					{
+						Headers: []ParameterDescriptor{
+							hostHeader,
+							authHeader,
+						},
+						Body: BodyDescriptor{
+							ContentType: "application/json",
+							Format:      `{"digests":["<digest>","..."]}`,
+						},
+						Successes: []ResponseDescriptor{
+							{
+								StatusCode:  http.StatusOK,
+								Description: "Chunk location results.",
+								Body: BodyDescriptor{
+									ContentType: "application/json",
+									Format:      `{"<digest>":{"repository":"<name>","size":<size>},"<digest>":null}`,
+								},
+							},
+						},
+						Failures: []ResponseDescriptor{
+							unauthorizedResponseDescriptor,
+						},
+					},
+				},
+			},
+		},
+	},
 }
